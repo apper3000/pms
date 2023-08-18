@@ -1,0 +1,156 @@
+#include <ESP8266WiFi.h>
+#include "PMS.h"
+#include <SoftwareSerial.h>
+
+
+SoftwareSerial nockanda(D3, D4); // tx=D1, rx=D2
+PMS pms(nockanda);
+PMS::DATA data;
+
+
+#ifndef STASSID
+#define STASSID "SK_WiFiGIGADA33"
+#define STAPSK  "1801025309"
+#endif
+
+
+const char* ssid = STASSID;
+const char* password = STAPSK;
+WiFiServer server(80);
+
+
+const int LED_PIN_1 = D8; // Pin for LED 1
+const int LED_PIN_2 = D9; // Pin for LED 2
+const int LED_PIN_3 = D10; // Pin for LED 3
+
+
+const float PM_THRESHOLD_1 = 30.0; // PM2.5 concentration threshold for LED 1
+const float PM_THRESHOLD_2 = 50.0; // PM2.5 concentration threshold for LED 2
+const float PM_THRESHOLD_3 = 70.0; // PM2.5 concentration threshold for LED 3
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.begin(115200); //PC-아두이노간 통신(결과를 출력하기 위한)
+  nockanda.begin(9600);  //아두이노-미세먼지센서간 통신
+  pms.passiveMode();
+ 
+  // prepare LEDs
+  pinMode(LED_PIN_1, OUTPUT);
+  pinMode(LED_PIN_2, OUTPUT);
+  pinMode(LED_PIN_3, OUTPUT);
+  digitalWrite(LED_PIN_1, LOW);
+  digitalWrite(LED_PIN_2, LOW);
+  digitalWrite(LED_PIN_3, LOW);
+
+
+  // Connect to WiFi network
+  Serial.println();
+  Serial.println();
+  Serial.print(F("Connecting to "));
+  Serial.println(ssid);
+
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(F("."));
+  }
+  Serial.println();
+  Serial.println(F("WiFi connected"));
+
+
+  // Start the server
+  server.begin();
+  Serial.println(F("Server started"));
+
+
+  // Print the IP address
+  Serial.println(WiFi.localIP());
+}
+
+
+void loop() {
+  // Check if a client has connected
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
+  }
+  Serial.println(F("new client"));
+
+
+  client.setTimeout(5000); // default is 1000
+
+
+  String req = client.readStringUntil('\r');
+  Serial.println(F("request: "));
+  Serial.println(req);
+
+
+  // read/ignore the rest of the request
+  // do not client.flush(): it is for output only, see below
+  while (client.available()) {
+    // byte by byte is not very efficient
+    client.read();
+  }
+
+
+  //센서값을 측정
+  String response;
+  Serial.println("Send read request...");
+  pms.requestRead();
+
+
+  Serial.println("Wait max. 1 second for read...");
+  if (pms.readUntil(data))
+  {
+    Serial.print("PM 1.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_1_0);
+
+
+    Serial.print("PM 2.5 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_2_5);
+
+
+    Serial.print("PM 10.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_10_0);
+
+
+    response = "PM 1.0 (ug/m3): " + String(data.PM_AE_UG_1_0) +
+               "PM 2.5 (ug/m3): " + String(data.PM_AE_UG_2_5) +
+               "PM 10.0 (ug/m3): " + String(data.PM_AE_UG_10_0);
+
+
+    // Control the LEDs based on PM2.5 concentration
+    if (data.PM_AE_UG_2_5 > PM_THRESHOLD_3) {
+      digitalWrite(LED_PIN_1, HIGH); // Turn on LED 1
+      digitalWrite(LED_PIN_2, HIGH); // Turn on LED 2
+      digitalWrite(LED_PIN_3, HIGH); // Turn on LED 3
+    } else if (data.PM_AE_UG_2_5 > PM_THRESHOLD_2) {
+      digitalWrite(LED_PIN_1, HIGH); // Turn on LED 1
+      digitalWrite(LED_PIN_2, HIGH); // Turn on LED 2
+      digitalWrite(LED_PIN_3, LOW);  // Turn off LED 3
+    } else if (data.PM_AE_UG_2_5 > PM_THRESHOLD_1) {
+      digitalWrite(LED_PIN_1, HIGH); // Turn on LED 1
+      digitalWrite(LED_PIN_2, LOW);  // Turn off LED 2
+      digitalWrite(LED_PIN_3, LOW);  // Turn off LED 3
+    } else {
+      digitalWrite(LED_PIN_1, LOW);  // Turn off LED 1
+      digitalWrite(LED_PIN_2, LOW);  // Turn off LED 2
+      digitalWrite(LED_PIN_3, LOW);  // Turn off LED 3
+    }
+  }
+  else
+  {
+    Serial.println("No data.");
+    response = "측정에 실패했습니다";
+  }
+ 
+  //서버에서 클라이언트로 보내는 response
+  client.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"));
+  client.print(response);
+  Serial.println(F("Disconnecting from client"));
+}
