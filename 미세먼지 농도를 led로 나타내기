@@ -1,0 +1,70 @@
+#include <SoftwareSerial.h>
+
+
+#define PIN_TX_PMS7003 3  // PMS7003의 TX 핀을 연결한 아두이노 핀 번호
+#define PIN_RX_PMS7003 4  // PMS7003의 RX 핀을 연결한 아두이노 핀 번호
+
+
+#define HEAD_1 0x42
+#define HEAD_2 0x4D
+
+
+#define PMS7003_BAUD_RATE 9600 // PMS7003와의 시리얼 통신 속도
+
+
+const int ledPin1 = 5;  // 첫 번째 LED를 제어할 디지털 핀
+const int ledPin2 = 6;  // 두 번째 LED를 제어할 디지털 핀
+const int ledPin3 = 7;  // 세 번째 LED를 제어할 디지털 핀
+
+
+SoftwareSerial pmsSerial(PIN_TX_PMS7003, PIN_RX_PMS7003); // PMS7003와의 소프트웨어 시리얼 통신
+
+
+void setup() {
+  Serial.begin(9600); // 시리얼 통신 초기화
+  pinMode(ledPin1, OUTPUT);  // 디지털 핀을 출력으로 설정
+  pinMode(ledPin2, OUTPUT);
+  pinMode(ledPin3, OUTPUT);
+  pmsSerial.begin(PMS7003_BAUD_RATE); // PMS7003와의 소프트웨어 시리얼 통신 초기화
+}
+
+
+void loop() {
+  if (pmsSerial.available() >= 32) {
+    uint8_t buffer[32];
+
+
+    // 센서로부터 32바이트 데이터 읽기
+    for (int i = 0; i < 32; i++) {
+      buffer[i] = pmsSerial.read();
+    }
+
+
+    // 데이터 유효성 검사
+    if (buffer[0] == HEAD_1 && buffer[1] == HEAD_2) {
+      // PM2.5 값 추출
+      uint16_t pm25_val = (buffer[10] << 8) | buffer[11];
+
+
+      // LED 제어
+      if (pm25_val <= 15) {
+        digitalWrite(ledPin1, HIGH);
+        digitalWrite(ledPin2, LOW);
+        digitalWrite(ledPin3, LOW);
+      } else if (pm25_val <= 35) {
+        digitalWrite(ledPin1, LOW);
+        digitalWrite(ledPin2, HIGH);  
+        digitalWrite(ledPin3, LOW);
+      } else {
+        digitalWrite(ledPin1, LOW);
+        digitalWrite(ledPin2, LOW);
+        digitalWrite(ledPin3, HIGH);
+      }
+
+
+      // 시리얼 모니터에 미세먼지 농도 값 출력
+      Serial.print("PM2.5: ");
+      Serial.println(pm25_val);
+    }
+  }
+}
