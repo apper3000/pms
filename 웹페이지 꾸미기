@@ -1,0 +1,418 @@
+#include <ESP8266WiFi.h>
+#include "PMS.h"
+#include <SoftwareSerial.h>
+
+
+
+
+SoftwareSerial nockanda(D3,D4); //tx=3, rx=4
+
+
+PMS pms(nockanda);
+PMS::DATA data;
+
+
+#ifndef STASSID
+#define STASSID "SK_WiFiGIGADA33"
+#define STAPSK  "1801025309"
+#endif
+
+
+const char* ssid = STASSID;
+const char* password = STAPSK;
+
+
+WiFiServer server(80);
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.begin(115200); //PC-아두이노간 통신(결과를 출력하기 위한)
+  nockanda.begin(9600);  //아두이노-미세먼지센서간 통신
+  pms.passiveMode();
+ 
+  // prepare LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, 0);
+
+
+  // Connect to WiFi network
+  Serial.println();
+  Serial.println();
+  Serial.print(F("Connecting to "));
+  Serial.println(ssid);
+
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(F("."));
+  }
+  Serial.println();
+  Serial.println(F("WiFi connected"));
+
+
+  // Start the server
+  server.begin();
+  Serial.println(F("Server started"));
+
+
+  // Print the IP address
+  Serial.println(WiFi.localIP());
+}
+
+
+void loop() {
+  // Check if a client has connected
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
+  }
+  Serial.println(F("new client"));
+
+
+  client.setTimeout(5000); // default is 1000
+
+
+  String req = client.readStringUntil('\r');
+  Serial.println(F("request: "));
+  Serial.println(req);
+
+
+
+
+  while (client.available()) {
+    // byte by byte is not very efficient
+    client.read();
+  }
+
+
+  //센서값을 측정
+  String response;
+  Serial.println("Send read request...");
+  pms.requestRead();
+
+
+  Serial.println("Wait max. 1 second for read...");
+  if (pms.readUntil(data))
+  {
+    Serial.print("PM 1.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_1_0);
+
+
+    Serial.print("PM 2.5 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_2_5);
+
+
+    Serial.print("PM 10.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_10_0);
+
+
+
+
+    pm1 = "PM 1.0 (ug/m3): " + String(data.PM_AE_UG_1_0)
+    pm2 = "PM 2.5 (ug/m3): " + String(data.PM_AE_UG_2_5)
+    pm3 = "PM 10.0 (ug/m3): " + String(data.PM_AE_UG_10_0)
+
+
+  }
+  else
+  {
+    Serial.println("No data.");
+    response = "측정에 실패했습니다..";
+  }
+ 
+  //서버에서 클라이언트로 보내는 response
+  client.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"));
+  client.println("<!DOCTYPE html>");
+  client.println("<html>");
+  client.println("<head>");
+  client.println("<meta charset=\"UTF-8\">");
+  client.println("<title>Fine dust concentration</title>");
+  client.println("<style>");
+  client.println("table, td, th { border: 2px solid black; }");
+  client.println("table { border-collapse: collapse; width: 85%; }");
+  client.println("th { height: 40px; background-color: #e3f2fd; }");
+  client.println("</style>");
+  client.println("</head>");
+
+
+  client.println("<body>");
+
+
+  client.println("<h1>Fine dust concentration</h1>");
+  client.println(pm1);
+  client.println(pm2);
+  client.println(pm3);
+  client.println("<a href=\"https://weather.naver.com/air/\"><h3>야외 미세먼지 농도</h3></a>");
+  client.println("<br>");
+  client.println("<br>");
+  client.println("<h3>Air Quality Index (AQI)</h3>");
+
+
+  client.println("<table>");
+  client.println("<tr>");
+  client.println("<th>Daily AQI Color</th>");
+  client.println("<th>Levels of Concern</th>");
+  client.println("<th>Values of Index</th>");
+  client.println("<th>Description of Air Quality</th>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#66EC66\">");
+  client.println("<td>Green</td>");
+  client.println("<td>Good</td>");
+  client.println("<td>0 to 50</td>");
+  client.println("<td>Air quality is satisfactory, and air pollution poses little or no risk.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#FFEB46\">");
+  client.println("<td>Yellow</td>");
+  client.println("<td>Moderate</td>");
+  client.println("<td>51 to 100</td>");
+  client.println("<td>Air quality is acceptable. However, there may be a risk for some people, particularly those who are unusually sensitive to air pollution.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#FF9614\">");
+  client.println("<td>Orange</td>");
+  client.println("<td>Unhealthy for Sensitive Groups</td>");
+  client.println("<td>101 to 150</td>");
+  client.println("<td>Members of sensitive groups may experience health effects. The general public is less likely to be affected.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#FF0000\">");
+  client.println("<td>Red</td>");
+  client.println("<td>Unhealthy</td>");
+  client.println("<td>151 to 200</td>");
+  client.println("<td>Some members of the general public may experience health effects; members of sensitive groups may experience more serious health effects.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#941494\">");
+  client.println("<td>Purple</td>");
+  client.println("<td>Very Unhealthy</td>");
+  client.println("<td>201 to 300</td>");
+  client.println("<td>Health alert: The risk of health effects is increased for everyone..</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#800000\">");
+  client.println("<td>Maroon</td>");
+  client.println("<td>Hazardous</td>");
+  client.println("<td>301 and higher</td>");
+  client.println("<td>Health warning of emergency conditions: everyone is more likely to be affected.</td>");
+  client.println("</tr>");
+  client.println("</table>");
+
+
+  client.println("</body>");
+
+
+  client.println("</html>");
+
+
+  Serial.println(F("Disconnecting from client"));
+}
+#include <ESP8266WiFi.h>
+#include "PMS.h"
+#include <SoftwareSerial.h>
+
+
+
+
+SoftwareSerial nockanda(D3,D4); //tx=3, rx=4
+
+
+PMS pms(nockanda);
+PMS::DATA data;
+
+
+#ifndef STASSID
+#define STASSID "SK_WiFiGIGADA33"
+#define STAPSK  "1801025309"
+#endif
+
+
+const char* ssid = STASSID;
+const char* password = STAPSK;
+
+
+WiFiServer server(80);
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.begin(115200); //PC-아두이노간 통신(결과를 출력하기 위한)
+  nockanda.begin(9600);  //아두이노-미세먼지센서간 통신
+  pms.passiveMode();
+ 
+  // prepare LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, 0);
+
+
+  // Connect to WiFi network
+  Serial.println();
+  Serial.println();
+  Serial.print(F("Connecting to "));
+  Serial.println(ssid);
+
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(F("."));
+  }
+  Serial.println();
+  Serial.println(F("WiFi connected"));
+
+
+  // Start the server
+  server.begin();
+  Serial.println(F("Server started"));
+
+
+  // Print the IP address
+  Serial.println(WiFi.localIP());
+}
+
+
+void loop() {
+  // Check if a client has connected
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
+  }
+  Serial.println(F("new client"));
+
+
+  client.setTimeout(5000); // default is 1000
+
+
+  String req = client.readStringUntil('\r');
+  Serial.println(F("request: "));
+  Serial.println(req);
+
+
+
+
+  while (client.available()) {
+    // byte by byte is not very efficient
+    client.read();
+  }
+
+
+  //센서값을 측정
+  String response;
+  Serial.println("Send read request...");
+  pms.requestRead();
+
+
+  Serial.println("Wait max. 1 second for read...");
+  if (pms.readUntil(data))
+  {
+    Serial.print("PM 1.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_1_0);
+
+
+    Serial.print("PM 2.5 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_2_5);
+
+
+    Serial.print("PM 10.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_10_0);
+
+
+
+
+    pm1 = "PM 1.0 (ug/m3): " + String(data.PM_AE_UG_1_0)
+    pm2 = "PM 2.5 (ug/m3): " + String(data.PM_AE_UG_2_5)
+    pm3 = "PM 10.0 (ug/m3): " + String(data.PM_AE_UG_10_0)
+
+
+  }
+  else
+  {
+    Serial.println("No data.");
+    response = "측정에 실패했습니다..";
+  }
+ 
+  //서버에서 클라이언트로 보내는 response
+  client.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"));
+  client.println("<!DOCTYPE html>");
+  client.println("<html>");
+  client.println("<head>");
+  client.println("<meta charset=\"UTF-8\">");
+  client.println("<title>Fine dust concentration</title>");
+  client.println("<style>");
+  client.println("table, td, th { border: 2px solid black; }");
+  client.println("table { border-collapse: collapse; width: 85%; }");
+  client.println("th { height: 40px; background-color: #e3f2fd; }");
+  client.println("</style>");
+  client.println("</head>");
+
+
+  client.println("<body>");
+
+
+  client.println("<h1>Fine dust concentration</h1>");
+  client.println(pm1);
+  client.println(pm2);
+  client.println(pm3);
+  client.println("<a href=\"https://weather.naver.com/air/\"><h3>야외 미세먼지 농도</h3></a>");
+  client.println("<br>");
+  client.println("<br>");
+  client.println("<h3>Air Quality Index (AQI)</h3>");
+
+
+  client.println("<table>");
+  client.println("<tr>");
+  client.println("<th>Daily AQI Color</th>");
+  client.println("<th>Levels of Concern</th>");
+  client.println("<th>Values of Index</th>");
+  client.println("<th>Description of Air Quality</th>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#66EC66\">");
+  client.println("<td>Green</td>");
+  client.println("<td>Good</td>");
+  client.println("<td>0 to 50</td>");
+  client.println("<td>Air quality is satisfactory, and air pollution poses little or no risk.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#FFEB46\">");
+  client.println("<td>Yellow</td>");
+  client.println("<td>Moderate</td>");
+  client.println("<td>51 to 100</td>");
+  client.println("<td>Air quality is acceptable. However, there may be a risk for some people, particularly those who are unusually sensitive to air pollution.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#FF9614\">");
+  client.println("<td>Orange</td>");
+  client.println("<td>Unhealthy for Sensitive Groups</td>");
+  client.println("<td>101 to 150</td>");
+  client.println("<td>Members of sensitive groups may experience health effects. The general public is less likely to be affected.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#FF0000\">");
+  client.println("<td>Red</td>");
+  client.println("<td>Unhealthy</td>");
+  client.println("<td>151 to 200</td>");
+  client.println("<td>Some members of the general public may experience health effects; members of sensitive groups may experience more serious health effects.</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#941494\">");
+  client.println("<td>Purple</td>");
+  client.println("<td>Very Unhealthy</td>");
+  client.println("<td>201 to 300</td>");
+  client.println("<td>Health alert: The risk of health effects is increased for everyone..</td>");
+  client.println("</tr>");
+  client.println("<tr bgcolor=\"#800000\">");
+  client.println("<td>Maroon</td>");
+  client.println("<td>Hazardous</td>");
+  client.println("<td>301 and higher</td>");
+  client.println("<td>Health warning of emergency conditions: everyone is more likely to be affected.</td>");
+  client.println("</tr>");
+  client.println("</table>");
+
+
+  client.println("</body>");
+
+
+  client.println("</html>");
+
+
+  Serial.println(F("Disconnecting from client"));
+}
